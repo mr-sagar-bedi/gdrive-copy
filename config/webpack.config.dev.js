@@ -22,7 +22,7 @@ let plugins = [
 
 module.exports = {
   entry: {
-    index: ['./src/index.js']
+    index: ['./src/index.js', './src/css/main.scss']
   },
   resolve: {
     extensions: ['.js', '.html']

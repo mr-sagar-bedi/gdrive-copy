@@ -20,7 +20,7 @@ If you are having issues signing in to the app, please try one of these options:
 
 ## Usage
 
-1. Select your folder with the Google Picker, or paste a folder URL with Ctrl-C
+1. Select your folder with the Google Picker, or type/paste a folder URL or ID
 2. Choose a name for the new folder
 3. Select copying options
 4. Click "Copy Folder". When the copy begins, you will be alerted that you can
@@ -58,6 +58,14 @@ contents.
 * Node version 8
 
 Note: some build commands use commands which may not be available on standard Windows command line terminals.
+
+### Local UI preview
+
+Run `node .hoplite/preview.js` after installing dependencies, then open
+<http://localhost:3000>. This builds the existing development UI with its styles
+and serves it without the legacy Gulp task. Restart the command after editing.
+Folder lookup, copy, resume, and pause use simulated test-mode responses; Google
+Picker and real Drive operations require the deployed Apps Script app.
 
 ### Steps
 

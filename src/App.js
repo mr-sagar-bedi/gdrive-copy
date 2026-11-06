@@ -25,6 +25,8 @@ export default class App extends React.Component {
    * Set global reference to picker so it can be passed down to the views
    */
   componentWillMount() {
+    if (process.env.NODE_ENV !== 'production') return;
+
     const _this = this;
     getScript('https://apis.google.com/js/api.js', function() {
       _this.setState({
