@@ -113,6 +113,10 @@ export default class Start extends React.Component {
       processing: false,
       srcFolderID: '',
       srcFolderName: '',
+      srcParentID: '',
+      destFolderName: '',
+      destFolderID: '',
+      copyPermissions: false,
       copyTo: 'same',
       destParentID: '',
       destParentName: ''
@@ -224,7 +228,14 @@ export default class Start extends React.Component {
   }
 
   nextView() {
-    if (this.state.stepNum === this.maxSteps) {
+    if (
+      this.state.stepNum === this.maxSteps ||
+      (this.state.stepNum === 0 && !this.state.srcFolderID) ||
+      (this.state.stepNum === 1 && !this.state.destFolderName.trim()) ||
+      (this.state.stepNum === 2 &&
+        this.state.copyTo === 'custom' &&
+        !this.state.destParentID)
+    ) {
       return;
     } else {
       this.setState({ stepNum: this.state.stepNum + 1 });
@@ -340,13 +351,14 @@ export default class Start extends React.Component {
             <div className="controls">
               <FlatButton
                 label="Go back"
-                onClick={this.reset}
+                onClick={this.prevView}
                 style={{ marginRight: '1em' }}
               />
               <RaisedButton
                 onClick={this.nextView}
                 primary={true}
                 label="Next"
+                disabled={!this.state.destFolderName.trim()}
               />
             </div>
           </Page>
@@ -371,7 +383,7 @@ export default class Start extends React.Component {
 
             <RadioButtonGroup
               name="copyTo"
-              defaultSelected="same"
+              valueSelected={this.state.copyTo}
               onChange={this.handleRadio}
             >
               <RadioButton
@@ -408,6 +420,9 @@ export default class Start extends React.Component {
                 onClick={this.nextView}
                 primary={true}
                 label="Next"
+                disabled={
+                  this.state.copyTo === 'custom' && !this.state.destParentID
+                }
               />
             </div>
           </Page>
@@ -449,6 +464,11 @@ export default class Start extends React.Component {
             </Panel>
 
             <div className="controls">
+              <FlatButton
+                label="Go back"
+                onClick={this.prevView}
+                style={{ marginRight: '1em' }}
+              />
               <FlatButton
                 label="Start over"
                 onClick={this.reset}

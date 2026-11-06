@@ -19,3 +19,6 @@ lib/*.js
 .clasp.json
 .clasp.dev.json
 .clasp.prod.json
+
+.hoplite/preview/
+.hoplite/artifacts/

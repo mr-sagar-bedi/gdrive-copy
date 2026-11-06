@@ -12,7 +12,6 @@ import PropTypes from 'prop-types';
 import TextField from 'material-ui/TextField';
 import RaisedButton from 'material-ui/RaisedButton';
 import { parseURL } from '../util/helpers';
-import { showPicker } from '../util/picker';
 import FolderLink from './FolderLink';
 
 export default class SelectFolder extends React.Component {
@@ -25,6 +24,7 @@ export default class SelectFolder extends React.Component {
     this.handlePaste = this.handlePaste.bind(this);
     this.handleChange = this.handleChange.bind(this);
     this.reset = this.reset.bind(this);
+    this.handleSubmit = this.handleSubmit.bind(this);
   }
 
   launchPicker() {
@@ -36,23 +36,23 @@ export default class SelectFolder extends React.Component {
     this.props.reset();
   }
 
-  // allow TextInput to update if typing in
   handleChange(e) {
-    // 2018-02-08: removed to avoid confusing error text
-    // this.setState({
-    //   value: e.target.value,
-    //   errorText: 'Paste a folder URL with Ctrl+V'
-    // });
+    this.setState({ value: e.target.value });
   }
 
-  /**
-   * Parse the text pasted into the input
-   * and extract an ID. Then call google script
-   * to get metadata for that folder ID.
-   * @param {pasteEvent} e
-   */
+  handleSubmit(e) {
+    e.preventDefault();
+    this.selectFolder(this.state.value);
+  }
+
   handlePaste(e) {
-    const url = e.clipboardData.getData('Text');
+    e.preventDefault();
+    this.selectFolder(e.clipboardData.getData('Text'));
+  }
+
+  selectFolder(input) {
+    const url = input.trim();
+    if (!url) return;
     const id = parseURL(url);
     this.setState({ value: url });
     this.props.processing('Getting folder info');
@@ -100,9 +100,9 @@ export default class SelectFolder extends React.Component {
     }
 
     return (
-      <div>
+      <form onSubmit={this.handleSubmit}>
         <TextField
-          floatingLabelText="Paste Folder URL"
+          floatingLabelText="Folder URL or ID"
           key="folderName"
           id="folderName"
           name="folderName"
@@ -110,18 +110,25 @@ export default class SelectFolder extends React.Component {
           onPaste={this.handlePaste}
           value={this.state.value}
         />
+        <RaisedButton
+          type="submit"
+          label="Select folder"
+          disabled={!this.state.value.trim()}
+          style={{ marginLeft: '1em' }}
+        />
         {this.props.picker && [
           <span className="circle-or" key="1">
             or
           </span>,
           <RaisedButton
             key="2"
+            type="button"
             label="Search your Drive"
             primary={true}
             onClick={this.launchPicker}
           />
         ]}
-      </div>
+      </form>
     );
   }
 }
