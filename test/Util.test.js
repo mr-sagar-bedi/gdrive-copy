@@ -5,6 +5,7 @@ import TriggerService from '../lib/TriggerService';
 import Properties from '../lib/Properties';
 import Constants from '../lib/Constants';
 import Logging from '../lib/Logging';
+import ErrorMessages from '../lib/ErrorMessages';
 const userProperties = require('./mocks/PropertiesService').getUserProperties();
 const sinon = require('sinon');
 const assert = require('assert');
@@ -169,7 +170,114 @@ describe('Util', function() {
     xit('should get spreadsheet if not passed as arg', function() {});
   });
   describe('saveState()', function() {
-    xit('should save properties', function() {});
-    xit('should log result', function() {});
+    let sandbox;
+    const gDriveService = {};
+    const sheet = {};
+
+    beforeEach(function() {
+      sandbox = sinon.createSandbox();
+    });
+
+    afterEach(function() {
+      sandbox.restore();
+    });
+
+    it('should preserve processed items and the next page token', function() {
+      const properties = new Properties();
+      const fileList = {
+        items: [{ id: 'processed-1' }, { id: 'processed-2' }],
+        nextPageToken: 'next-page'
+      };
+      const save = sandbox.stub(Properties, 'save');
+      const log = sandbox.stub(Logging, 'log');
+
+      Util.saveState(properties, fileList, 'Paused', sheet, gDriveService);
+
+      assert.deepEqual(properties.leftovers, fileList);
+      assert.equal(properties.pageToken, 'next-page');
+      assert(save.calledOnceWithExactly(properties, gDriveService));
+      assert.equal(log.lastCall.args[0].status, 'Paused');
+    });
+
+    it('should keep existing leftovers and page token when no fresh file list is provided', function() {
+      const properties = new Properties();
+      properties.leftovers = {
+        items: [{ id: 'leftover' }],
+        nextPageToken: 'saved-page'
+      };
+      properties.pageToken = 'stale-page';
+      const save = sandbox.stub(Properties, 'save');
+      sandbox.stub(Logging, 'log');
+
+      Util.saveState(properties, undefined, 'Paused', sheet, gDriveService);
+
+      assert.deepEqual(properties.leftovers, {
+        items: [{ id: 'leftover' }],
+        nextPageToken: 'saved-page'
+      });
+      assert.equal(properties.pageToken, 'saved-page');
+      assert(save.calledOnce);
+    });
+
+    it('should delete the scheduled trigger and only log warnings on Drive quota failure', function() {
+      const properties = new Properties();
+      const quotaError = new Error('exceeded their Drive storage quota');
+      const save = sandbox.stub(Properties, 'save').throws(quotaError);
+      const deleteTrigger = sandbox.stub(TriggerService, 'deleteTrigger');
+      const log = sandbox.stub(Logging, 'log');
+
+      Util.saveState(properties, undefined, 'Paused', sheet, gDriveService);
+
+      assert(save.calledOnce);
+      assert(
+        deleteTrigger.calledOnceWithExactly(
+          userProperties.getProperty('triggerId')
+        )
+      );
+      assert.deepEqual(log.getCalls().map(call => call.args[0].status), [
+        ErrorMessages.OutOfSpace,
+        ErrorMessages.WillDuplicateOnResume
+      ]);
+    });
+
+    it('should keep logging quota warnings if deleting the scheduled trigger fails', function() {
+      const properties = new Properties();
+      const save = sandbox
+        .stub(Properties, 'save')
+        .throws(new Error('exceeded their Drive storage quota'));
+      const deleteTrigger = sandbox
+        .stub(TriggerService, 'deleteTrigger')
+        .throws(new Error('trigger already unavailable'));
+      const log = sandbox.stub(Logging, 'log');
+
+      assert.doesNotThrow(() =>
+        Util.saveState(properties, undefined, 'Paused', sheet, gDriveService)
+      );
+
+      assert(save.calledOnce);
+      assert(deleteTrigger.calledOnce);
+      assert.deepEqual(log.getCalls().map(call => call.args[0].status), [
+        ErrorMessages.OutOfSpace,
+        ErrorMessages.WillDuplicateOnResume
+      ]);
+    });
+
+    it('should log a diagnostic and the requested message on other save failures', function() {
+      const properties = new Properties();
+      const saveError = new Error('temporary Drive API failure');
+      sandbox.stub(Properties, 'save').throws(saveError);
+      const log = sandbox.stub(Logging, 'log');
+
+      Util.saveState(properties, undefined, 'Paused', sheet, gDriveService);
+
+      assert(log.calledTwice);
+      assert(
+        log.firstCall.args[0].status.includes(
+          ErrorMessages.FailedSaveProperties
+        )
+      );
+      assert(log.firstCall.args[0].status.includes(saveError.message));
+      assert.equal(log.secondCall.args[0].status, 'Paused');
+    });
   });
 });
