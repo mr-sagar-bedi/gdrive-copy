@@ -5,6 +5,7 @@ import TriggerService from '../lib/TriggerService';
 import Properties from '../lib/Properties';
 import Constants from '../lib/Constants';
 import Logging from '../lib/Logging';
+import ErrorMessages from '../lib/ErrorMessages';
 const userProperties = require('./mocks/PropertiesService').getUserProperties();
 const sinon = require('sinon');
 const assert = require('assert');
@@ -169,7 +170,169 @@ describe('Util', function() {
     xit('should get spreadsheet if not passed as arg', function() {});
   });
   describe('saveState()', function() {
-    xit('should save properties', function() {});
-    xit('should log result', function() {});
+    let sandbox;
+    const gDriveService = {};
+    const sheet = {};
+
+    beforeEach(function() {
+      sandbox = sinon.createSandbox();
+      this.propertiesServiceDescriptor = Object.getOwnPropertyDescriptor(
+        global,
+        'PropertiesService'
+      );
+      Object.defineProperty(global, 'PropertiesService', {
+        configurable: true,
+        writable: true,
+        value: require('./mocks/PropertiesService')
+      });
+    });
+
+    afterEach(function() {
+      sandbox.restore();
+      if (this.propertiesServiceDescriptor === undefined) {
+        delete global.PropertiesService;
+      } else {
+        Object.defineProperty(
+          global,
+          'PropertiesService',
+          this.propertiesServiceDescriptor
+        );
+      }
+    });
+
+    it('should preserve unprocessed items and the next page token', function() {
+      const properties = new Properties();
+      const fileList = {
+        items: [{ id: 'pending-1' }, { id: 'pending-2' }],
+        nextPageToken: 'next-page'
+      };
+      let savedState;
+      const save = sandbox.stub(Properties, 'save').callsFake(savedProperties => {
+        savedState = JSON.parse(JSON.stringify(savedProperties));
+      });
+      const log = sandbox.stub(Logging, 'log');
+
+      Util.saveState(properties, fileList, 'Paused', sheet, gDriveService);
+
+      assert.deepEqual(savedState.leftovers.items, [
+        { id: 'pending-1' },
+        { id: 'pending-2' }
+      ]);
+      assert.equal(savedState.pageToken, 'next-page');
+      assert(save.calledOnceWithExactly(properties, gDriveService));
+      assert.deepEqual(log.lastCall.args[0], { ss: sheet, status: 'Paused' });
+    });
+
+    it('should keep existing leftovers and page token when no fresh file list is provided', function() {
+      const properties = new Properties();
+      properties.leftovers = {
+        items: [{ id: 'leftover' }],
+        nextPageToken: 'saved-page'
+      };
+      properties.pageToken = 'stale-page';
+      let savedState;
+      const save = sandbox.stub(Properties, 'save').callsFake(savedProperties => {
+        savedState = JSON.parse(JSON.stringify(savedProperties));
+      });
+      const log = sandbox.stub(Logging, 'log');
+
+      Util.saveState(properties, undefined, 'Paused', sheet, gDriveService);
+
+      assert.deepEqual(savedState.leftovers, {
+        items: [{ id: 'leftover' }],
+        nextPageToken: 'saved-page'
+      });
+      assert.equal(savedState.pageToken, 'saved-page');
+      assert(save.calledOnce);
+      assert.deepEqual(log.lastCall.args[0], { ss: sheet, status: 'Paused' });
+    });
+
+    it('should delete the scheduled trigger and only log warnings on Drive quota failure', function() {
+      const properties = new Properties();
+      const fileList = { items: [] };
+      const quotaError = new Error('exceeded their Drive storage quota');
+      let savedState;
+      const save = sandbox.stub(Properties, 'save').callsFake(savedProperties => {
+        savedState = JSON.parse(JSON.stringify(savedProperties));
+        throw quotaError;
+      });
+      const deleteTrigger = sandbox.stub(TriggerService, 'deleteTrigger');
+      const log = sandbox.stub(Logging, 'log');
+
+      Util.saveState(properties, fileList, 'Paused', sheet, gDriveService);
+
+      assert(save.calledOnce);
+      assert.deepEqual(savedState.leftovers, fileList);
+      assert(
+        deleteTrigger.calledOnceWithExactly(
+          userProperties.getProperty('triggerId')
+        )
+      );
+      assert.deepEqual(
+        log.getCalls().map(call => call.args[0]),
+        [
+          { ss: sheet, status: ErrorMessages.OutOfSpace },
+          { ss: sheet, status: ErrorMessages.WillDuplicateOnResume }
+        ]
+      );
+    });
+
+    it('should keep logging quota warnings if deleting the scheduled trigger fails', function() {
+      const properties = new Properties();
+      const fileList = { items: [] };
+      let savedState;
+      const save = sandbox.stub(Properties, 'save').callsFake(savedProperties => {
+        savedState = JSON.parse(JSON.stringify(savedProperties));
+        throw new Error('exceeded their Drive storage quota');
+      });
+      const deleteTrigger = sandbox
+        .stub(TriggerService, 'deleteTrigger')
+        .throws(new Error('trigger already unavailable'));
+      const log = sandbox.stub(Logging, 'log');
+
+      assert.doesNotThrow(() =>
+        Util.saveState(properties, fileList, 'Paused', sheet, gDriveService)
+      );
+
+      assert(save.calledOnce);
+      assert.deepEqual(savedState.leftovers, fileList);
+      assert(deleteTrigger.calledOnce);
+      assert.deepEqual(
+        log.getCalls().map(call => call.args[0]),
+        [
+          { ss: sheet, status: ErrorMessages.OutOfSpace },
+          { ss: sheet, status: ErrorMessages.WillDuplicateOnResume }
+        ]
+      );
+    });
+
+    it('should log a diagnostic and the requested message on other save failures', function() {
+      const properties = new Properties();
+      const fileList = { items: [] };
+      const saveError = new Error('temporary Drive API failure');
+      let savedState;
+      const save = sandbox.stub(Properties, 'save').callsFake(savedProperties => {
+        savedState = JSON.parse(JSON.stringify(savedProperties));
+        throw saveError;
+      });
+      const log = sandbox.stub(Logging, 'log');
+
+      Util.saveState(properties, fileList, 'Paused', sheet, gDriveService);
+
+      assert(save.calledOnce);
+      assert.deepEqual(savedState.leftovers, fileList);
+      assert(log.calledTwice);
+      assert(
+        log.firstCall.args[0].status.includes(
+          ErrorMessages.FailedSaveProperties
+        )
+      );
+      assert(log.firstCall.args[0].status.includes(saveError.message));
+      assert.deepEqual(log.firstCall.args[0], {
+        ss: sheet,
+        status: log.firstCall.args[0].status
+      });
+      assert.deepEqual(log.secondCall.args[0], { ss: sheet, status: 'Paused' });
+    });
   });
 });
